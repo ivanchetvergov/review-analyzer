@@ -16,7 +16,6 @@ class Rating:
 @dataclass(frozen=True)
 class Review:
     review_id : ReviewId
-    text : str
     rating : Rating
     movie_id : MovieId
     user_id : UserId
@@ -31,8 +30,11 @@ class Movie:
     
 @dataclass(frozen=True)
 class User:
-    user_id : UserId
-    name : Optional[str]
+    user_id: UserId
+    age: int
+    gender: str
+    occupation: str
+    zip_code: str
     
 
     

@@ -1,0 +1,39 @@
+# Игнорируем стандартные файлы операционной системы
+.DS_Store
+.venv
+.vscode/
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+lib/
+# Игнорируем файлы, созданные стандартными пакетами
+dist/
+build/
+*.egg-info/
+*.whl
+
+# Файлы данных
+data/
+datasets/
+
+*.joblib
+*.pkl
+*.h5
+*.keras
+*.pth
+*.pt
+model_artifacts/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Логи и временные файлы
+*.log
+*.tmp
+/logs/
+

@@ -6,6 +6,7 @@ from scipy.sparse import coo_matrix
 from typing import Dict, Tuple
 
 from .features_builder import build_user_features, build_item_features
+from .prepare_data import preprocess_features
 
 def build_interactions_matrix(ratings_df : pd.DataFrame) -> Tuple[coo_matrix, Dict[str, int], Dict[str, int]]:
     """
@@ -41,7 +42,7 @@ def build_features_matrices(
     movies_df: pd.DataFrame,
     user_to_idx: Dict[str, int],
     movie_to_idx: Dict[str, int]
-) -> Tuple[coo_matrix, coo_matrix]:
+) -> Tuple[coo_matrix, coo_matrix, list, list]:
     """
     Создает разреженные матрицы фичей для пользователей и фильмов для LightFM.
     """
@@ -59,9 +60,6 @@ def build_features_matrices(
     # реиндексируем, чтобы гарантировать правильный порядок
     user_features_df = user_features_df.drop_duplicates(subset=['user_id'])
     user_features_df = user_features_df.set_index('user_id').reindex(user_to_idx.keys()).fillna(0)
-    
-    user_features_matrix = coo_matrix(user_features_df.values.astype(np.float32))
-    logging.info(f"User features shape: {user_features_matrix.shape}")
 
     # --- ITEM FEATURES ---
     item_features_df = build_item_features(reviews_df, movies_df)
@@ -75,8 +73,16 @@ def build_features_matrices(
         
     # реиндексируем, чтобы гарантировать правильный порядок
     item_features_df = item_features_df.set_index('movie_id').reindex(movie_to_idx.keys()).fillna(0)
-
+    
+    user_features_df, item_features_df = preprocess_features(user_features_df, item_features_df)
+    
+    user_features_matrix = coo_matrix(user_features_df.values.astype(np.float32))
+    logging.info(f"User features shape: {user_features_matrix.shape}")
+        
     item_features_matrix = coo_matrix(item_features_df.values.astype(np.float32))
     logging.info(f"Item features shape: {item_features_matrix.shape}")
+    
+    user_feature_names = list(user_features_df.columns)
+    item_feature_names = list(item_features_df.columns)
 
-    return user_features_matrix, item_features_matrix
+    return user_features_matrix, item_features_matrix, user_feature_names, item_feature_names

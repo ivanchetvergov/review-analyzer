@@ -3,6 +3,7 @@ import logging
 from sklearn.model_selection import train_test_split
 from lightfm import LightFM
 from lightfm.evaluation import precision_at_k, auc_score # type: ignore
+from analyze.analyze_model_weights import analyze_models_weights
 from scipy.sparse import coo_matrix
 import pandas as pd
 import numpy as np
@@ -27,16 +28,18 @@ def run_training():
     # cтроим матрицу взаимодействий и маппинги
     interactions, user_to_idx, movie_to_idx = build_interactions_matrix(train_df)
     # cтроим матрицы фичей, передавая reviews_df и movies_df
-    user_features, item_features = build_features_matrices(reviews_df, movies_df, user_to_idx, movie_to_idx)
+    user_features, item_features, user_feature_names, item_feature_names = build_features_matrices(
+        reviews_df, movies_df, user_to_idx, movie_to_idx
+    )
     
     logging.info("Fitting LightFM model...")
     # инициализируем модель с учетом фичей
     model = LightFM(
         loss='warp',
-        no_components=30,
-        # learning_schedule='adagrad',
-        # user_alpha=1e-9,   # L2 регуляризация для пользователей
-        # item_alpha=1e-9    # L2 регуляризация для предметов
+        no_components=20,
+        learning_schedule='adagrad',
+        user_alpha=1e-1,   # L2 регуляризация для пользователей
+        item_alpha=1e-1    # L2 регуляризация для предметов
     )
     
     # обучаем модель
@@ -44,7 +47,7 @@ def run_training():
         interactions=interactions,
         user_features=user_features,
         item_features=item_features,
-        epochs=10,
+        epochs=15,
         num_threads=4
     )
      
@@ -89,6 +92,8 @@ def run_training():
     
     logging.info(f"Train AUC: {train_auc:.4f}")
     logging.info(f"Test AUC: {test_auc:.4f}")
+    
+    analyze_models_weights(model, user_features, item_features, user_feature_names, item_feature_names, top_n=15)
 
 if __name__ == "__main__":
     run_training()

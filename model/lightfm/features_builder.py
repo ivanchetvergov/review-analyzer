@@ -9,23 +9,26 @@ from sklearn.preprocessing import StandardScaler
 def build_user_features(
     reviews_df: pd.DataFrame,
     movies_df: pd.DataFrame,
-    n_clusters=10
+    min_genre_users=50
 ) -> Optional[pd.DataFrame]:
     """
-    Синтезирует признаки пользователей на основе их активности и жанровых предпочтений.
-    
-    Аргументы:
-        reviews_df (pd.DataFrame): DataFrame с данными об отзывах.
-        movies_df (pd.DataFrame): DataFrame с данными о фильмах.
-        
+    Формирует признаки для пользователей на основе их активности и жанровых предпочтений.
+
+    Основные шаги:
+    - Считает статистики по отзывам пользователя: количество, средний рейтинг, дисперсия.
+    - Стандартизирует числовые признаки.
+    - Выделяет жанры, которые пользователь смотрел, и бинаризует их.
+    - Оставляет только популярные жанры (просмотрены минимум min_genre_users пользователями).
+    - Для каждого пользователя определяет топ-3 жанра и кодирует их one-hot.
+    - Объединяет статистики и жанровые признаки в итоговый DataFrame.
+    - Добавляет признак user_bias для учета смещения пользователя.
+
     Возвращает:
-        Optional[pd.DataFrame]: DataFrame с признаками пользователей или None, если reviews_df пуст.
+        DataFrame с признаками пользователей, где строки — пользователи, столбцы — признаки.
     """
     if reviews_df.empty:
         logging.warning("Reviews DataFrame is empty. Cannot build user features.")
         return None
-
-    logging.info("Building user features...")
 
     # --- базовые статистики ---
     user_stats = reviews_df.groupby('user_id')['rating'].agg(
@@ -33,11 +36,7 @@ def build_user_features(
         mean_rating='mean',
         rating_var='var'
     ).fillna(0).reset_index()
-
-    # логарифм числа оценок
     user_stats['num_ratings'] = np.log1p(user_stats['num_ratings'])
-
-    # стандартизация mean_rating и rating_var
     scaler = StandardScaler()
     user_stats[['mean_rating', 'rating_var']] = scaler.fit_transform(user_stats[['mean_rating', 'rating_var']])
 
@@ -46,52 +45,61 @@ def build_user_features(
     merged['genre'] = merged['genres'].str.split('|')
     exploded = merged.explode('genre')
     user_genres = exploded.groupby(['user_id', 'genre'])['rating'].count().unstack(fill_value=0)
-    user_genres[user_genres > 0] = 1  # бинарные признаки: смотрел жанр или нет
 
-    # топ-3 любимых жанра
+    # оставляем только жанры, которые посмотрели > min_genre_users
+    genre_counts = (user_genres > 0).sum(axis=0)
+    kept_genres = genre_counts[genre_counts >= min_genre_users].index
+    user_genres = user_genres[kept_genres]
+    user_genres[user_genres > 0] = 1  # бинаризация
+
+    # топ-3 жанра
     top_genres = user_genres.apply(lambda x: x.nlargest(3).index.tolist(), axis=1)
     top_genres_df = pd.DataFrame(index=user_genres.index)
     for i in range(3):
         top_genres_df[f'top_genre_{i+1}'] = top_genres.apply(lambda x: x[i] if len(x) > i else None)
     top_genres_df = pd.get_dummies(top_genres_df, dummy_na=True)
-    
-    # --- кластеризация пользователей по жанрам ---
-    # kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-    # user_clusters = kmeans.fit_predict(user_genres)
-    # user_clusters_df = pd.DataFrame({'user_id': user_genres.index, 'user_cluster': user_clusters})
-    # user_clusters_onehot = pd.get_dummies(user_clusters_df['user_cluster'], prefix='cluster')
-    # user_clusters_onehot['user_id'] = user_genres.index
 
-    # --- объединяем все признаки ---
-    user_features = pd.concat([user_stats.set_index('user_id'), user_genres, top_genres_df], axis=1)
+    # объединяем статистики и жанры
+    user_features = pd.concat([user_stats.set_index('user_id'), top_genres_df], axis=1)
     user_features.reset_index(inplace=True)
+
+    # добавляем bias
+    user_features['user_bias'] = 1.0
 
     return user_features
 
-def build_item_features(reviews_df: pd.DataFrame, 
-                        movies_df: pd.DataFrame, 
-                        top_k=0.1) -> Optional[pd.DataFrame]:
+def build_item_features(
+    reviews_df: pd.DataFrame,
+    movies_df: pd.DataFrame,
+    min_genre_movies=20
+) -> Optional[pd.DataFrame]:
     """
-    Создает признаки фильмов на основе их жанров и года выпуска.
-    
-    Аргументы:
-        reviews_df (pd.DataFrame): DataFrame с данными об отзывах.
-        movies_df (pd.DataFrame): DataFrame с данными о фильмах.
-        
+    Формирует признаки для фильмов на основе жанра, года выпуска, рейтинга
+
+    Основные шаги:
+    - Кодирует жанры фильмов в one-hot, оставляя только популярные (просмотрены минимум min_genre_movies раз).
+    - Бинует год выпуска фильма и кодирует его one-hot.
+    - Считает средний рейтинг и количество отзывов для каждого фильма, стандартизирует рейтинг.
+    - Выделяет признак популярности (топ-10% по количеству отзывов).
+    - Объединяет все признаки в итоговый DataFrame.
+    - Добавляет признак item_bias для учета смещения фильма.
+
     Возвращает:
-        Optional[pd.DataFrame]: DataFrame с признаками фильмов или None, если movies_df пуст.
+        DataFrame с признаками фильмов, где строки — фильмы, столбцы — признаки.
     """
     if movies_df.empty:
         logging.warning("Movies DataFrame is empty. Cannot build item features.")
         return None
-    
-    logging.info("Building item features based on genres and release year...")
-    
+
     # --- жанры ---
     genres_df = movies_df['genres'].str.get_dummies(sep='|')
+    # оставляем только популярные жанры
+    genre_counts = (genres_df > 0).sum(axis=0)
+    kept_genres = genre_counts[genre_counts >= min_genre_movies].index
+    genres_df = genres_df[kept_genres]
     genres_df.columns = [f'genre_{c}' for c in genres_df.columns]
 
-    # --- year-bin и возраст фильма ---
+    # --- возраст фильма ---
     current_year = 2025
     movies_df['movie_age'] = current_year - movies_df['year']
     bins = [1900, 1980, 1990, 2000, 2010, 2020, 2025]
@@ -107,13 +115,16 @@ def build_item_features(reviews_df: pd.DataFrame,
     movie_stats['num_ratings'] = np.log1p(movie_stats['num_ratings'])
     movie_stats[['avg_rating']] = StandardScaler().fit_transform(movie_stats[['avg_rating']])
 
-    # --- топ-K популярные фильмы ---
-    threshold = movie_stats['num_ratings'].quantile(1 - top_k)
+    # топ-10% популярных
+    threshold = movie_stats['num_ratings'].quantile(0.9)
     movie_stats['popular'] = (movie_stats['num_ratings'] >= threshold).astype(int)
 
-    # объединяем все
+    # объединяем
     item_features = movies_df[['movie_id']].merge(movie_stats, on='movie_id', how='left')
     item_features = pd.concat([item_features, genres_df, year_bin_df], axis=1)
+
+    # добавляем bias
+    item_features['item_bias'] = 1.0
 
     return item_features
 

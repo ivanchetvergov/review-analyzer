@@ -1,52 +1,92 @@
 # model/lightfm/train_model.py
-
 import logging
-from lightfm import LightFM  # type: ignore
+from sklearn.model_selection import train_test_split
+from lightfm import LightFM
 from lightfm.evaluation import precision_at_k, auc_score # type: ignore
-from model.lightfm.prepare_data import get_dataframes
-from model.lightfm.build_matrices import build_interactions_matrix, build_features_matrices 
+from scipy.sparse import coo_matrix
+import pandas as pd
+import numpy as np
 
-logging.basicConfig(level=logging.INFO)
+# Импортируем наши функции для построения матриц
+from .build_matrices import build_interactions_matrix, build_features_matrices
+from src.data_loader import load_movies, load_reviews
+from src.data_processor import create_dataframes
 
-# подготовка данных
-reviews_df, full_dataset_df = get_dataframes()
-interactions, user_to_idx, movie_to_idx = build_interactions_matrix(reviews_df)
-user_features, item_features = build_features_matrices(full_dataset_df, user_to_idx, movie_to_idx)
+def run_training():
+    logging.basicConfig(level=logging.INFO)
+    
+    logging.info("Loading and processing data...")
 
-# создаем модель
-model = LightFM(
-    no_components=30,
-    loss='warp',
-    random_state=42
-)
+    movies_list = load_movies("data/ml-20m/movies.csv", nrows= 1_000_000)
+    reviews_list = load_reviews("data/ml-20m/ratings.csv", nrows=1_000_000)
+    
+    movies_df, reviews_df, _ = create_dataframes(movies_list, reviews_list, None)
+    
+    train_df, test_df = train_test_split(reviews_df, test_size=0.2, random_state=42)
+    
+    # cтроим матрицу взаимодействий и маппинги
+    interactions, user_to_idx, movie_to_idx = build_interactions_matrix(train_df)
+    # cтроим матрицы фичей, передавая reviews_df и movies_df
+    user_features, item_features = build_features_matrices(reviews_df, movies_df, user_to_idx, movie_to_idx)
+    
+    logging.info("Fitting LightFM model...")
+    # инициализируем модель с учетом фичей
+    model = LightFM(
+        loss='warp',
+        no_components=30,
+        learning_rate=0.05
+    )
+    
+    # обучаем модель
+    model.fit(
+        interactions=interactions,
+        user_features=user_features,
+        item_features=item_features,
+        epochs=10,
+        num_threads=4
+    )
+    
+    # оцениваем модель
+    test_interactions, _, _ = build_interactions_matrix(test_df)
+    
+    # вычисляем precision
+    k = 5
+    train_precision = precision_at_k(
+        model,
+        interactions,
+        user_features=user_features,
+        item_features=item_features,
+        k=k
+    ).mean()
+    
+    test_precision = precision_at_k(
+        model,
+        test_interactions,
+        user_features=user_features,
+        item_features=item_features,
+        k=k
+    ).mean()
+    
+    logging.info(f"Train precision@{k}: {train_precision:.4f}")
+    logging.info(f"Test precision@{k}: {test_precision:.4f}")
 
-# обучение
-logging.info("Starting model training...")
-model.fit(
-    interactions,
-    user_features=user_features,
-    item_features=item_features,
-    epochs=30,
-    num_threads=4
-)
-logging.info("Training finished!")
+    # Вычисляем AUC
+    train_auc = auc_score(
+        model,
+        interactions,
+        user_features=user_features,
+        item_features=item_features
+    ).mean()
+    
+    test_auc = auc_score(
+        model,
+        test_interactions,
+        user_features=user_features,
+        item_features=item_features
+    ).mean()
+    
+    logging.info(f"Train AUC: {train_auc:.4f}")
+    logging.info(f"Test AUC: {test_auc:.4f}")
 
-# оценка модели
-K = 5
-train_precision = precision_at_k(
-    model,
-    interactions,
-    user_features=user_features,
-    item_features=item_features,
-    k=K
-).mean()
-
-train_auc = auc_score(
-    model,
-    interactions,
-    user_features=user_features,
-    item_features=item_features
-).mean()
-
-logging.info(f"Train precision@{K}: {train_precision:.4f}")
-logging.info(f"Train AUC: {train_auc:.4f}")
+if __name__ == "__main__":
+    run_training()

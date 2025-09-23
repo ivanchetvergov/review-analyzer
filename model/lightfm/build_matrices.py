@@ -1,14 +1,11 @@
-# model/train_model.py
+# model/lightfm/build_matrices.py
 import pandas as pd
 import numpy as np
 import logging
 from scipy.sparse import coo_matrix
 from typing import Dict, Tuple
-from lightfm import LightFM # pyright: ignore[reportMissingImports]
-from src.data_loader import load_movies, load_reviews, load_users
-from src.data_processor import create_dataframes, merge_datasets
 
-def _build_interactions_matrix(ratings_df : pd.DataFrame) -> Tuple[coo_matrix, Dict[str, int], Dict[str, int]]:
+def build_interactions_matrix(ratings_df : pd.DataFrame) -> Tuple[coo_matrix, Dict[str, int], Dict[str, int]]:
     """
     Создает разреженную матрицу взаимодействий (пользователи-фильмы).
     """
@@ -30,7 +27,7 @@ def _build_interactions_matrix(ratings_df : pd.DataFrame) -> Tuple[coo_matrix, D
     
     return interactions, user_to_idx, movie_to_idx
 
-def _build_features_matrices(
+def build_features_matrices(
     full_dataset_df: pd.DataFrame,
     user_to_idx: Dict[str, int],
     movie_to_idx: Dict[str, int]
@@ -79,18 +76,16 @@ def _build_features_matrices(
     })
 
     # one-hot кодирование жанров
-    genres_df = item_features_df['genres'].str.get_dummies(sep=',')  # используем запятую как separator
+    genres_df = item_features_df['genres'].str.get_dummies(sep=',')
     item_features_df = pd.concat([item_features_df.drop(columns=['genres']), genres_df], axis=1)
 
     # добавляем item_bias
     item_features_df['item_bias'] = 1.0
 
-    # удаляем лишние колонки
-    drop_cols_item = ['title', 'rating_value', 'review_id', 'user_id', 'zip_code']
+    # удаляем лишние колонки, которые не числовые
+    drop_cols_item = ['age', 'gender', 'occupation', 'title', 'rating_value', 'review_id', 'user_id', 'zip_code']
     item_features_df = item_features_df.drop(columns=[c for c in drop_cols_item if c in item_features_df.columns])
 
     item_features_matrix = coo_matrix(item_features_df.values.astype(np.float32))
-
-    logging.info(f"item features matrix shape: {item_features_matrix.shape}")
 
     return user_features_matrix, item_features_matrix

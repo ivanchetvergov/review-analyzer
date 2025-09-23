@@ -57,6 +57,7 @@ def build_features_matrices(
         user_features_df['user_bias'] = 1.0
     
     # реиндексируем, чтобы гарантировать правильный порядок
+    user_features_df = user_features_df.drop_duplicates(subset=['user_id'])
     user_features_df = user_features_df.set_index('user_id').reindex(user_to_idx.keys()).fillna(0)
     
     user_features_matrix = coo_matrix(user_features_df.values.astype(np.float32))

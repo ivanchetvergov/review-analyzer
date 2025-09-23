@@ -18,15 +18,15 @@ def run_eda():
     logging.basicConfig(level=logging.INFO)
 
     logging.info("Loading data from files...")
-    movies_list = load_movies("data/dataset/movies.csv", nrows=1_000_000)
-    reviews_list = load_reviews("data/dataset/ratings.csv", nrows=3_000_000)
+    movies_list = load_movies("data/ml-20m/movies.csv", nrows=1_000_000)
+    reviews_list = load_reviews("data/ml-20m/ratings.csv", nrows=3_000_000)
 
 
     movies_df, reviews_df, _ = create_dataframes(
-        movies_list, reviews_list
+        movies_list, reviews_list, users_df=None
     )
     
-    full_dataset_df = merge_datasets(movies_df, reviews_df)
+    full_dataset_df = merge_datasets(movies_df, reviews_df, users_df=None)
 
     logging.info("Full dataset created!")
 
@@ -36,6 +36,8 @@ def run_eda():
     print("\nColumns and their data types:")
     full_dataset_df.info()
 
+    _ensure_assets_dir()
+    
     # визуализация распределения рейтингов
     plt.figure(figsize=(8, 6))
     sns.countplot(x='rating', data=full_dataset_df)
@@ -58,7 +60,7 @@ def run_eda():
     plt.close()
     
     genre_counts = full_dataset_df["genres"].str.split("|").explode().value_counts()
-    top_genres = genre_counts.head(15).index
+    top_genres = genre_counts.head(10).index
 
     top_genre_ratings = (
         full_dataset_df["genres"]
@@ -73,7 +75,7 @@ def run_eda():
 
     plt.figure(figsize=(10,6))
     sns.barplot(x=top_genre_ratings.index, y=top_genre_ratings.values)
-    plt.title("Средний рейтинг по топ-15 жанрам")
+    plt.title("Средний рейтинг по топ-10 жанрам")
     plt.tight_layout()
     plt.savefig(os.path.join(ASSETS_DIR, "avg_rating_by_genre.png"))
     plt.close()

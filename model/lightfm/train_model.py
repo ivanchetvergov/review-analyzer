@@ -34,7 +34,9 @@ def run_training():
     model = LightFM(
         loss='warp',
         no_components=30,
-        learning_rate=0.05
+        # learning_schedule='adagrad',
+        # user_alpha=1e-9,   # L2 регуляризация для пользователей
+        # item_alpha=1e-9    # L2 регуляризация для предметов
     )
     
     # обучаем модель
@@ -45,7 +47,7 @@ def run_training():
         epochs=10,
         num_threads=4
     )
-    
+     
     # оцениваем модель
     test_interactions, _, _ = build_interactions_matrix(test_df)
     

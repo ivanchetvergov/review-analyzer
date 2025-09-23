@@ -4,7 +4,7 @@ import numpy as np
 import logging
 from typing import Optional
 from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
+# from sklearn.cluster import KMeans
 
 def build_user_features(
     reviews_df: pd.DataFrame,
@@ -48,16 +48,23 @@ def build_user_features(
     user_genres = exploded.groupby(['user_id', 'genre'])['rating'].count().unstack(fill_value=0)
     user_genres[user_genres > 0] = 1  # бинарные признаки: смотрел жанр или нет
 
+    # топ-3 любимых жанра
+    top_genres = user_genres.apply(lambda x: x.nlargest(3).index.tolist(), axis=1)
+    top_genres_df = pd.DataFrame(index=user_genres.index)
+    for i in range(3):
+        top_genres_df[f'top_genre_{i+1}'] = top_genres.apply(lambda x: x[i] if len(x) > i else None)
+    top_genres_df = pd.get_dummies(top_genres_df, dummy_na=True)
+    
     # --- кластеризация пользователей по жанрам ---
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-    user_clusters = kmeans.fit_predict(user_genres)
-    user_clusters_df = pd.DataFrame({'user_id': user_genres.index, 'user_cluster': user_clusters})
-    user_clusters_onehot = pd.get_dummies(user_clusters_df['user_cluster'], prefix='cluster')
-    user_clusters_onehot['user_id'] = user_genres.index
+    # kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+    # user_clusters = kmeans.fit_predict(user_genres)
+    # user_clusters_df = pd.DataFrame({'user_id': user_genres.index, 'user_cluster': user_clusters})
+    # user_clusters_onehot = pd.get_dummies(user_clusters_df['user_cluster'], prefix='cluster')
+    # user_clusters_onehot['user_id'] = user_genres.index
 
-    # объединяем все признаки
-    user_features = user_stats.merge(user_genres.reset_index(), on='user_id')
-    user_features = user_features.merge(user_clusters_onehot, on='user_id')
+    # --- объединяем все признаки ---
+    user_features = pd.concat([user_stats.set_index('user_id'), user_genres, top_genres_df], axis=1)
+    user_features.reset_index(inplace=True)
 
     return user_features
 
@@ -84,7 +91,9 @@ def build_item_features(reviews_df: pd.DataFrame,
     genres_df = movies_df['genres'].str.get_dummies(sep='|')
     genres_df.columns = [f'genre_{c}' for c in genres_df.columns]
 
-    # --- year-bin ---
+    # --- year-bin и возраст фильма ---
+    current_year = 2025
+    movies_df['movie_age'] = current_year - movies_df['year']
     bins = [1900, 1980, 1990, 2000, 2010, 2020, 2025]
     labels = ['<1980','1980-1989','1990-1999','2000-2009','2010-2019','>=2020']
     year_bin = pd.cut(movies_df['year'], bins=bins, labels=labels, right=False)

@@ -3,8 +3,8 @@ import pandas as pd
 import logging
 import seaborn as sns
 import matplotlib.pyplot as plt
-from data_loader import load_movies, load_reviews, load_users
-from data_processor import create_dataframes, merge_datasets
+from src.data_loader import load_movies, load_reviews, load_users
+from src.data_processor import create_dataframes, merge_datasets
 
 def run_eda():
     """
@@ -31,7 +31,7 @@ def run_eda():
     print("\nColumns and their data types:")
     full_dataset_df.info()
 
-    # Визуализация распределения рейтингов
+    # визуализация распределения рейтингов
     plt.figure(figsize=(8, 6))
     sns.countplot(x='rating_value', data=full_dataset_df)
     plt.title('Distribution of Movie Ratings', fontsize=16)
@@ -39,7 +39,7 @@ def run_eda():
     plt.ylabel('Count', fontsize=12)
     plt.show()
 
-    # Топ-10 фильмов
+    # топ 10 фильмов
     top_movies = full_dataset_df['title'].value_counts().head(10)
     plt.figure(figsize=(12, 8))
     sns.barplot(y=top_movies.index, x=top_movies.values)

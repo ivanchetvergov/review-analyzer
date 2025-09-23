@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from typing import List, FrozenSet, Optional, TypeVar, Callable
 
-from types_ import Movie, User, Review, Rating, UserId, MovieId, ReviewId
+from src.types_ import Movie, User, Review, Rating, UserId, MovieId, ReviewId
 
 # жанры: последние 19 полей, 1/0
 _GENRE_LABELS = [

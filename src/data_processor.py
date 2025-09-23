@@ -1,7 +1,7 @@
 # data_processor.py
 import pandas as pd
 from typing import List
-from types_ import Movie, Review, User
+from src.types_ import Movie, Review, User
 import logging
 
 def create_dataframes(
@@ -9,24 +9,41 @@ def create_dataframes(
     reviews_list: List[Review],
     users_list: List[User]
 ):
-    """
-    Создает и объединяет Pandas DataFrame из списков объектов.
-    """
-    logging.info("Converting to DataFrame...")
-    movies_df = pd.DataFrame(movies_list)
-    reviews_df = pd.DataFrame(reviews_list)
-    users_df = pd.DataFrame(users_list)
+    logging.info("converting to DataFrame...")
 
-    # присваиваем колонкам 'movie_id' и 'user_id' правильные типы для оптимизации
-    reviews_df['movie_id'] = reviews_df['movie_id'].astype('string')
-    reviews_df['user_id'] = reviews_df['user_id'].astype('string')
-    movies_df['movie_id'] = movies_df['movie_id'].astype('string')
-    users_df['user_id'] = users_df['user_id'].astype('string')
+    movies_df = pd.DataFrame([
+        {
+            "movie_id": m.movie_id,
+            "title": m.title,
+            "year": m.year,
+            "genres": ",".join(sorted(m.genres))
+        }
+        for m in movies_list
+    ])
 
-    # извлекаем числовое значение рейтинга
-    reviews_df['rating_value'] = reviews_df['rating'].apply(lambda x: x['value'])
+    reviews_df = pd.DataFrame([
+        {
+            "review_id": r.review_id,
+            "movie_id": r.movie_id,
+            "user_id": r.user_id,
+            "rating_value": r.rating.value
+        }
+        for r in reviews_list
+    ])
+
+    users_df = pd.DataFrame([
+        {
+            "user_id": u.user_id,
+            "age": getattr(u, "age", None),
+            "gender": getattr(u, "gender", None),
+            "occupation": getattr(u, "occupation", None),
+            "zip_code": getattr(u, "zip_code", None)
+        }
+        for u in users_list
+    ])
 
     return movies_df, reviews_df, users_df
+
 
 def merge_datasets(
     movies_df: pd.DataFrame,

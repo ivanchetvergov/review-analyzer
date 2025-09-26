@@ -19,7 +19,7 @@ def run_training():
     logging.info("Loading and processing data...")
 
     movies_list = load_movies("data/ml-20m/movies.csv", nrows= 1_000_000)
-    reviews_list = load_reviews("data/ml-20m/ratings.csv", nrows=1_000_000)
+    reviews_list = load_reviews("data/ml-20m/ratings.csv", nrows=3_000_000)
     
     movies_df, reviews_df, _ = create_dataframes(movies_list, reviews_list, None)
     
@@ -36,10 +36,10 @@ def run_training():
     # инициализируем модель с учетом фичей
     model = LightFM(
         loss='warp',
-        no_components=20,
+        no_components=50,
         learning_schedule='adagrad',
-        user_alpha=1e-1,   # L2 регуляризация для пользователей
-        item_alpha=1e-1    # L2 регуляризация для предметов
+        user_alpha=0.6,    # L2 регуляризация для пользователей
+        item_alpha=0.6,    # L2 регуляризация для предметов
     )
     
     # обучаем модель
@@ -47,7 +47,7 @@ def run_training():
         interactions=interactions,
         user_features=user_features,
         item_features=item_features,
-        epochs=15,
+        epochs=35,
         num_threads=4
     )
      

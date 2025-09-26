@@ -12,61 +12,88 @@ def build_user_features(
     min_genre_users=50
 ) -> Optional[pd.DataFrame]:
     """
-    Формирует признаки для пользователей на основе их активности и жанровых предпочтений.
-
-    Основные шаги:
-    - Считает статистики по отзывам пользователя: количество, средний рейтинг, дисперсия.
-    - Стандартизирует числовые признаки.
-    - Выделяет жанры, которые пользователь смотрел, и бинаризует их.
-    - Оставляет только популярные жанры (просмотрены минимум min_genre_users пользователями).
-    - Для каждого пользователя определяет топ-3 жанра и кодирует их one-hot.
-    - Объединяет статистики и жанровые признаки в итоговый DataFrame.
-    - Добавляет признак user_bias для учета смещения пользователя.
-
-    Возвращает:
-        DataFrame с признаками пользователей, где строки — пользователи, столбцы — признаки.
+    формирует user features для lightfm:
+    - все числовые статистики (num_ratings, mean_rating, rating_var) бинируются
+    - count_<genre> бинируется
+    - avg_rating_<genre> стандартизированы
+    - топ-3 жанра one-hot
+    - добавлен user_bias
     """
+
     if reviews_df.empty:
         logging.warning("Reviews DataFrame is empty. Cannot build user features.")
         return None
 
-    # --- базовые статистики ---
+    logging.info("Building user features...")
+
+    # --- 1. базовые статистики ---
     user_stats = reviews_df.groupby('user_id')['rating'].agg(
         num_ratings='count',
         mean_rating='mean',
         rating_var='var'
     ).fillna(0).reset_index()
+    
     user_stats['num_ratings'] = np.log1p(user_stats['num_ratings'])
-    scaler = StandardScaler()
-    user_stats[['mean_rating', 'rating_var']] = scaler.fit_transform(user_stats[['mean_rating', 'rating_var']])
+    # не стандартизируем, будем бинировать
+    user_numeric_cols = ['num_ratings', 'mean_rating', 'rating_var']
 
-    # --- жанровые предпочтения ---
+    # --- 2. жанровые предпочтения ---
     merged = pd.merge(reviews_df, movies_df[['movie_id', 'genres']], on='movie_id')
     merged['genre'] = merged['genres'].str.split('|')
     exploded = merged.explode('genre')
-    user_genres = exploded.groupby(['user_id', 'genre'])['rating'].count().unstack(fill_value=0)
 
-    # оставляем только жанры, которые посмотрели > min_genre_users
-    genre_counts = (user_genres > 0).sum(axis=0)
+    genre_features = exploded.groupby(['user_id', 'genre'])['rating'].agg(
+        count='count', avg_rating='mean'
+    ).reset_index()
+
+    count_pivot = genre_features.pivot(index='user_id', columns='genre', values='count').fillna(0)
+    count_pivot.columns = [f'count_{col.replace(" ", "_")}' for col in count_pivot.columns]
+
+    avg_rating_pivot = genre_features.pivot(index='user_id', columns='genre', values='avg_rating').fillna(0)
+    avg_rating_pivot.columns = [f'avg_rating_{col.replace(" ", "_")}' for col in avg_rating_pivot.columns]
+
+    # --- 3. объединяем и бинируем ---
+    user_features_numeric = pd.merge(user_stats, count_pivot, on='user_id', how='left').fillna(0)
+    final_features_df = user_features_numeric[['user_id']].copy()
+
+    # все числовые колонки для бинирования
+    cols_to_bin = user_numeric_cols + [col for col in user_features_numeric.columns if col.startswith('count_')]
+
+    for col in cols_to_bin:
+        try:
+            binned = pd.qcut(user_features_numeric[col], q=5, labels=False, duplicates='drop')
+        except ValueError:
+            binned = pd.qcut(user_features_numeric[col], q=3, labels=False, duplicates='drop')
+        binned_dummies = pd.get_dummies(binned, prefix=f'bin_{col}')
+        final_features_df = pd.concat([final_features_df, binned_dummies], axis=1)
+
+    # --- 4. стандартизированные avg_rating_<genre> ---
+    scaler_avg = StandardScaler()
+    avg_scaled = avg_rating_pivot.copy()
+    for col in avg_scaled.columns:
+        avg_scaled[col] = scaler_avg.fit_transform(avg_scaled[col].values.reshape(-1, 1))
+    avg_scaled.reset_index(inplace=True)
+    final_features_df = pd.merge(final_features_df, avg_scaled, on='user_id', how='left').fillna(0)
+
+    # --- 5. топ-3 жанра ---
+    user_genres_counts = exploded.groupby(['user_id', 'genre'])['rating'].count().unstack(fill_value=0)
+    genre_counts = (user_genres_counts > 0).sum(axis=0)
     kept_genres = genre_counts[genre_counts >= min_genre_users].index
-    user_genres = user_genres[kept_genres]
-    user_genres[user_genres > 0] = 1  # бинаризация
-
-    # топ-3 жанра
-    top_genres = user_genres.apply(lambda x: x.nlargest(3).index.tolist(), axis=1)
-    top_genres_df = pd.DataFrame(index=user_genres.index)
+    user_genres_filtered = user_genres_counts[kept_genres]
+    top_genres = user_genres_filtered.apply(lambda x: x.nlargest(3).index.tolist(), axis=1)
+    top_genres_df = pd.DataFrame(index=user_genres_filtered.index)
     for i in range(3):
-        top_genres_df[f'top_genre_{i+1}'] = top_genres.apply(lambda x: x[i] if len(x) > i else None)
-    top_genres_df = pd.get_dummies(top_genres_df, dummy_na=True)
+        col_name = f'top_genre_{i+1}'
+        top_genres_df[col_name] = top_genres.apply(lambda x: x[i] if len(x) > i else np.nan)
+    top_genres_df = pd.get_dummies(top_genres_df, dummy_na=True, prefix='top_genre')
+    top_genres_df.reset_index(inplace=True)
+    final_features_df = pd.merge(final_features_df, top_genres_df, on='user_id', how='left').fillna(0)
 
-    # объединяем статистики и жанры
-    user_features = pd.concat([user_stats.set_index('user_id'), top_genres_df], axis=1)
-    user_features.reset_index(inplace=True)
+    # --- 6. bias ---
+    final_features_df['user_bias'] = 1.0
 
-    # добавляем bias
-    user_features['user_bias'] = 1.0
+    return final_features_df
 
-    return user_features
 
 def build_item_features(
     reviews_df: pd.DataFrame,
@@ -107,7 +134,7 @@ def build_item_features(
     year_bin = pd.cut(movies_df['year'], bins=bins, labels=labels, right=False)
     year_bin_df = pd.get_dummies(year_bin, prefix='year_bin')
 
-    # --- рейтинг и популярность ---
+    # --- рейтинг и популярность ---  
     movie_stats = reviews_df.groupby('movie_id')['rating'].agg(
         avg_rating='mean',
         num_ratings='count'
